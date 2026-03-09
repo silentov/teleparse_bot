@@ -18,7 +18,7 @@ class RedisManager:
         self._socket_timeout = config.redis.socket_timeout
         self._health_check_interval = config.redis.health_check_interval
         self._decode_responses = config.redis.decode_responses
-        self._fsm_ttl_seconds = getattr(config.redis, "fsm_ttl_seconds", 1800)
+        self._fsm_ttl_seconds = config.redis.ttl_second
 
         self._pool: ConnectionPool | None = None
         self._client: Redis | None = None
@@ -41,17 +41,17 @@ class RedisManager:
 
         try:
             logger.info("Redis ping")
-            await self._client.ping()
+            await self._client.ping()  # pyright: ignore[reportGeneralTypeIssues]
         except RedisError as e:
             logger.error("Ошибка в тестовом подключении к Redis: {}", e)
             await self.stop()
             raise
-        else: 
+        else:
             logger.info("OK")
 
         self._started = True
 
-    #TODO: сделать ретраи
+    # TODO: сделать ретраи
     def get_client(self) -> Redis:
         if self._client is None:
             raise RuntimeError("RedisManager is not started")
@@ -72,5 +72,5 @@ class RedisManager:
 
     async def ping(self) -> bool:
         client = self.get_client()
-        result = await client.ping()
+        result = await client.ping()  # pyright: ignore[reportGeneralTypeIssues]
         return bool(result)

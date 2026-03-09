@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 
 from infrastructure.redis import RedisService, LockService, RedisKeys, RedisLock
-from redis_fsm.fsm_states import FSMState
+from fsm.fsm_states import FSMState
 
 Key = Tuple[int, int]
 
@@ -17,7 +17,7 @@ class FSMContext:
     data: Dict[str, Any] = field(default_factory=dict)
 
 
-class RedisFSM:
+class FSM:
     def __init__(
         self,
         redis_service: RedisService,

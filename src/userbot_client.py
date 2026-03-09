@@ -12,14 +12,14 @@ class UserBot:
         if not self._started:
             await self._client.start()  # type: ignore
             self._started = True
-            logger.info("UserBot started")
+            logger.info("UserBot запущен")
 
     async def stop(self) -> None:
         """Останавливает UserBot клиент."""
         if self._started:
-            await self._client.disconnect()
+            await self._client.disconnect()  # pyright: ignore[reportGeneralTypeIssues]
             self._started = False
-            logger.info("UserBot stopped")
+            logger.info("UserBot остановлен")
 
     async def get_messages(self, chat_name: str | None, limit: int) -> dict:
         """Получает сообщения из канала."""

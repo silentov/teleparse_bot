@@ -114,7 +114,7 @@ class RedisService:
         self, chat_id: int, user_id: int
     ) -> dict[str, Any] | None:
         key = RedisKeys.fsm_context(chat_id, user_id)
-        raw = await self._redis.hgetall(key)
+        raw = await self._redis.hgetall(key)  # pyright: ignore[reportGeneralTypeIssues]
         if not raw:
             return None
 
@@ -137,7 +137,7 @@ class RedisService:
         key = RedisKeys.fsm_context(chat_id, user_id)
         result = await self._redis.hset(
             key, mapping={"state": state, "updated_at": str(int(time.time()))}
-        )
+        )  # pyright: ignore[reportGeneralTypeIssues]
         # Keep the same TTL as for user state
         await self._redis.expire(key, 1800)
         return bool(result)
@@ -146,7 +146,7 @@ class RedisService:
         key = RedisKeys.fsm_context(chat_id, user_id)
 
         # Get existing data to merge
-        raw = await self._redis.hgetall(key)
+        raw = await self._redis.hgetall(key)  # pyright: ignore[reportGeneralTypeIssues]
         existing_data = {}
         if raw and "data" in raw:
             try:

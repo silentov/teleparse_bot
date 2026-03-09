@@ -7,14 +7,7 @@ from pathlib import Path
 from typing import Optional
 from enum import Enum
 
-from pydantic import (
-    SecretStr,
-    ValidationError,
-    field_validator,
-    model_validator,
-    BaseModel, 
-    Field
-)
+from pydantic import SecretStr, field_validator, model_validator, BaseModel, Field
 from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from loguru import logger
@@ -27,9 +20,9 @@ class Envinroment(str, Enum):
 
 class AppSecrets(BaseModel):
     name: str = "Граппер"
-    api_id: SecretStr = Field(default=SecretStr(''))
-    api_hash: SecretStr = Field(default=SecretStr(''))
-    token: SecretStr = Field(default=SecretStr(''))
+    api_id: SecretStr = Field(default=SecretStr(""))
+    api_hash: SecretStr = Field(default=SecretStr(""))
+    token: SecretStr = Field(default=SecretStr(""))
 
     model_config = SettingsConfigDict(
         env_prefix="BOT_",
@@ -56,6 +49,7 @@ class RedisSecrets(BaseModel):
     socket_timeout: float = 5.0
     health_check_interval: int = 30
     decode_responses: bool = True
+    ttl_second: int = 1800
 
     # Можно либо задать REDIS_URL целиком, либо собрать его из частей.
     url: RedisDsn | None = None
@@ -101,12 +95,12 @@ class RedisSecrets(BaseModel):
 
 
 class LLMSecrets(BaseModel):
-    model: str = ''
+    model: str = ""
     temperature: float = 1.0
     timeout: int = 10
     tokens: int = 8000
     max_retries: int = 0
-    api_key: SecretStr = Field(default=SecretStr(''))
+    api_key: SecretStr = Field(default=SecretStr(""))
     api_url: Optional[str] | None = None
 
     model_config = SettingsConfigDict(
@@ -134,6 +128,7 @@ class Settings(BaseSettings):
     4. Docker Secrets (/run/secrets или указанная директория)
     5. default values
     """
+
     env: Envinroment = Envinroment.LOCAL
 
     app: AppSecrets = AppSecrets()
@@ -142,7 +137,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_file="D:/projects/py_teleparse/src/.secrets/.env",
-        #secrets_dir="D:/projects/py_teleparse/src/.secrets",
+        # secrets_dir="D:/projects/py_teleparse/src/.secrets",
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         extra="ignore",
@@ -222,9 +217,9 @@ def resolve_local_env_file() -> Path:
     Ожидаем файл: <project_root>/src/.secrets/env
     """
     base_dir = Path(__file__).resolve()
-    #logger.debug("{}", base_dir)
+    # logger.debug("{}", base_dir)
     project_root = base_dir.parents[1]
-    #logger.debug("{}", project_root)
+    # logger.debug("{}", project_root)
 
     env_file = project_root / "src" / ".secrets" / ".env"
     return env_file
@@ -256,7 +251,6 @@ def resolve_prod_secrets_dir() -> Path | None:
             continue
 
 
-
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     raw_env = os.getenv("APP_ENV", "local").strip().lower()
@@ -266,9 +260,7 @@ def get_settings() -> Settings:
         env_file = resolve_local_env_file()
 
         if not env_file.exists() or not env_file.is_file():
-            raise RuntimeError(
-                f"Local env file not found: {env_file}"
-            )
+            raise RuntimeError(f"Local env file not found: {env_file}")
 
         logger.info("Режим local, загружаю env_file: {}", env_file)
 
@@ -281,9 +273,7 @@ def get_settings() -> Settings:
         secrets_dir = resolve_prod_secrets_dir()
 
         if secrets_dir is None:
-            raise RuntimeError(
-                "APP_ENV=prod, но директория Docker Secrets не найдена"
-            )
+            raise RuntimeError("APP_ENV=prod, но директория Docker Secrets не найдена")
 
         logger.info("Режим prod, загружаю secrets_dir: {}", secrets_dir)
 

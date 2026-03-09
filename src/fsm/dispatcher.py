@@ -3,14 +3,14 @@ from __future__ import annotations
 from telethon import events
 from typing import Awaitable, Callable
 
-from redis_fsm import RedisFSM, FSMContext
+from fsm import FSM, FSMContext
 
 StateHandler = Callable[[events.NewMessage.Event, FSMContext], Awaitable[None]]
 CallbackHandler = Callable[[events.CallbackQuery.Event, FSMContext], Awaitable[None]]
 
 
 class RedisFSMDispatcher:
-    def __init__(self, fsm: RedisFSM):
+    def __init__(self, fsm: FSM):
         self.fsm = fsm
         self.handlers: dict[str, Callable[..., Awaitable[None]]] = {}
         self.callback_handlers: dict[str, Callable[..., Awaitable[None]]] = {}

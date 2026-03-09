@@ -5,7 +5,7 @@ from loguru import logger
 import signal
 from config import Settings
 from userbot_client import UserBot
-from redis_fsm import RedisFSMDispatcher, FSMState, RedisFSM, FSMContext
+from fsm import RedisFSMDispatcher, FSMState, FSM, FSMContext
 from keyboards import (
     main_menu,
     limit_picker,
@@ -21,7 +21,7 @@ class MainBot:
         config: Settings,
         client: TelegramClient,
         userbot: UserBot,
-        fsm: RedisFSM,
+        fsm: FSM,
         dispatcher: RedisFSMDispatcher,
     ) -> None:
         self._client = client
@@ -97,13 +97,15 @@ class MainBot:
 
             res = await self._userbot.get_messages(channel, limit)
 
-            logger.debug(res)
+            logger.debug(res["messages"][0])
+
+            id_list = [i.id for i in res["messages"]]
 
             # Редактируем сообщение с результатом
             await self._client.edit_message(
                 chat_id,
                 bot_msg_id,
-                f"✅ Получено **{len(res['messages'])}** сообщений из канала **{res['channel'].title}**",
+                f"✅ Получено \n **{'\n'.join([channel + '/' + str(j) for j in id_list])}** \nсообщений из канала **{res['channel'].title}**",
                 buttons=action_buttons(),
             )
             await self._fsm.reset(ctx.key)

@@ -5,7 +5,7 @@ from telethon import TelegramClient
 from bot_client import MainBot
 from config import get_settings
 from infrastructure.redis import RedisManager, RedisService, LockService
-from redis_fsm import RedisFSM, RedisFSMDispatcher
+from fsm import FSM, RedisFSMDispatcher
 from userbot_client import UserBot
 
 
@@ -35,7 +35,7 @@ async def main():
             str(settings.app.api_hash.get_secret_value()),
         )
 
-        fsm = RedisFSM(redis_service, lock_service, ttl_seconds=30 * 60)
+        fsm = FSM(redis_service, lock_service, ttl_seconds=30 * 60)
         dispatcher = RedisFSMDispatcher(fsm=fsm)
 
         bot = MainBot(
@@ -48,7 +48,7 @@ async def main():
 
         logger.info("Запускаем бота...")
         await bot.run()
-    except Exception as e:
+    except Exception:
         logger.exception("Ошибка: ")
     finally:
         await redis_manager.stop()

@@ -1,13 +1,12 @@
 """Redis-based FSM (Finite State Machine) для Telegram ботов."""
 
-from .redis_fsm_impl import RedisFSM, FSMContext, Key
-from .redis_fsm_dispatcher_impl import RedisFSMDispatcher, StateHandler
+from .fsm import FSM, FSMContext, Key
+from .dispatcher import RedisFSMDispatcher, StateHandler
 from infrastructure.redis.lock import RedisLock
 from .fsm_states import FSMState
-# from .utils import get_redis
 
 __all__ = [
-    "RedisFSM",
+    "FSM",
     "FSMContext",
     "Key",
     "RedisFSMDispatcher",
