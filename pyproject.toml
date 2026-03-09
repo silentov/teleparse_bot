@@ -1,0 +1,21 @@
+[project]
+name = "py-teleparse"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain>=1.2.10",
+    "langchain-deepseek>=1.0.1",
+    "loguru>=0.7.3",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "python-dotenv>=1.2.1",
+    "redis>=7.2.1",
+    "telethon>=1.42.0",
+]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.15.3"
+]

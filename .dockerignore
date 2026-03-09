@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Environment files
+.env
+.env.*
+
+# Session files (будут монтироваться как volumes)
+*.session
+*.session-journal
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation
+README.md
+IMPROVEMENTS.md
+.cursorrules/
+
+# Docker
+Dockerfile
+docker-compose.yaml
+.dockerignore
+
+# Logs
+*.log
+
+# Tests
+tests/
+pytest.ini
+.pytest_cache/
