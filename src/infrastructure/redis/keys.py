@@ -25,20 +25,8 @@ class RedisKeys:
         return cls.key("session", session_id)
 
     @classmethod
-    def user_profile(cls, user_id: int) -> str:
-        return cls.key("user", user_id, "profile")
-
-    @classmethod
-    def user_state(cls, user_id: int) -> str:
-        return cls.key("user", user_id, "state")
-
-    @classmethod
     def rate_limit(cls, scope: str, user_id: int) -> str:
         return cls.key("rate_limit", scope, user_id)
-
-    @classmethod
-    def lock_user_action(cls, user_id: int, action: str) -> str:
-        return cls.lock("user", user_id, action)
 
     @classmethod
     def lock_job(cls, job_name: str) -> str:

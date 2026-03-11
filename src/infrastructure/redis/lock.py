@@ -5,7 +5,11 @@ import uuid
 from typing import Self
 
 from redis.asyncio import Redis
-from loguru import logger
+
+from app_logger import get_logger
+
+
+LOGGER = get_logger(component="redis_lock")
 
 _RELEASE_LOCK_LUA = """
 if redis.call("GET", KEYS[1]) == ARGV[1] then
@@ -51,7 +55,7 @@ class RedisLock:
     async def acquire(self, *, wait_ms: int = 5_000, retry_ms: int = 50) -> bool:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + wait_ms / 1000
-        logger.info("key: {}, ttl: {}", self._key, self._ttl_ms)
+        LOGGER.info("Устанавливаем лок на key: {}, ttl: {}", self._key, self._ttl_ms)
         while loop.time() < deadline:
             ok = await self._redis.set(
                 self._key,

@@ -1,4 +1,4 @@
-from loguru import logger
+#from loguru import logger
 
 import asyncio
 from telethon import TelegramClient
@@ -7,14 +7,34 @@ from config import get_settings
 from infrastructure.redis import RedisManager, RedisService, LockService
 from fsm import FSM, RedisFSMDispatcher
 from userbot_client import UserBot
+from app_logger import setup_logger, get_logger
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parent
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 async def main():
+    setup_logger(
+        app_name="teleparse_bot",
+        env="local",
+        level="INFO",
+        log_dir=LOG_DIR,
+        log_json=False,
+        log_to_file=True,
+        intercept_std_logging=True,
+    )
+
+    LOGGER = get_logger(component="bootstrap")
+    LOGGER.info("Custom logger")
+
     settings = get_settings()
 
     redis_manager = RedisManager(config=settings)
 
-    logger.info("Запускаем Redis...")
+    LOGGER.info("Запускаем Redis...")
     await redis_manager.start()
 
     try:
@@ -46,11 +66,12 @@ async def main():
             dispatcher=dispatcher,
         )
 
-        logger.info("Запускаем бота...")
+        LOGGER.info("Запускаем бота...")
         await bot.run()
     except Exception:
-        logger.exception("Ошибка: ")
+        LOGGER.exception("Ошибка: ")
     finally:
+        LOGGER.complete()
         await redis_manager.stop()
 
 

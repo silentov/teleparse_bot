@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from redis.asyncio import Redis, ConnectionPool
 from redis.exceptions import RedisError
-from loguru import logger
 
 from config import Settings
+from app_logger import get_logger
+
+
+LOGGER = get_logger(component="redis_manager")
 
 
 class RedisManager:
@@ -40,14 +43,14 @@ class RedisManager:
         self._client = Redis.from_pool(self._pool)
 
         try:
-            logger.info("Redis ping")
+            LOGGER.info("Redis ping")
             await self._client.ping()  # pyright: ignore[reportGeneralTypeIssues]
         except RedisError as e:
-            logger.error("Ошибка в тестовом подключении к Redis: {}", e)
+            LOGGER.error("Ошибка в тестовом подключении к Redis: {}", e)
             await self.stop()
             raise
         else:
-            logger.info("OK")
+            LOGGER.info("OK")
 
         self._started = True
 
@@ -63,7 +66,7 @@ class RedisManager:
 
     async def stop(self) -> None:
         if self._client is not None:
-            logger.info("Разрываем подклчение к Redis")
+            LOGGER.info("Разрываем подключение к Redis")
             await self._client.aclose()
             self._client = None
 

@@ -4,7 +4,10 @@ from redis.asyncio import Redis
 
 from .keys import RedisKeys
 from .lock import RedisLock
+from app_logger import get_logger
 
+
+LOGGER = get_logger(component="redis_lock_service")
 
 class LockService:
     def __init__(self, redis: Redis) -> None:

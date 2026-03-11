@@ -1,6 +1,6 @@
 import asyncio
 from telethon import TelegramClient, events
-from loguru import logger
+#from loguru import logger
 
 import signal
 from config import Settings
@@ -13,6 +13,10 @@ from keyboards import (
     back_to_menu,
     action_buttons,
 )
+from app_logger import get_logger
+
+
+logger = get_logger(component="mainbot")
 
 
 class MainBot:
@@ -97,7 +101,7 @@ class MainBot:
 
             res = await self._userbot.get_messages(channel, limit)
 
-            logger.debug(res["messages"][0])
+            logger.info(res["messages"][0])
 
             id_list = [i.id for i in res["messages"]]
 
@@ -269,11 +273,11 @@ class MainBot:
                 pass
 
         # Запускаем Bot и UserBot
-        await self._client.start(bot_token=self.__token)  # type: ignore
+        await self._client.start(bot_token=self.__token)
         await self._userbot.start()
 
         try:
-            await self._client.run_until_disconnected()  # type: ignore
+            await self._client.run_until_disconnected()
         finally:
             await self._shutdown()
 
@@ -290,6 +294,6 @@ class MainBot:
         # Закрываем Bot клиент
         try:
             if self._client.is_connected():
-                await self._client.disconnect()  # type: ignore
+                await self._client.disconnect()
         except Exception:
             logger.exception("Error disconnecting Bot client")

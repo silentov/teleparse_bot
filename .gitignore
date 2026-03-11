@@ -13,6 +13,7 @@ wheels/
 .env
 *.session
 *.session-journal
+.secrets
 
 DOCKER_GUIDE.md
 IMPROVEMENTS.md
@@ -20,3 +21,10 @@ IMPROVEMENTS.md
 redis.conf
 
 docker-compose.yaml
+
+.clainrules
+.ruff_cache
+
+uv.lock
+
+logs/
