@@ -46,8 +46,12 @@ def _json_serializer(record: dict[str, Any]) -> str:
 
     if record["exception"] is not None:
         payload["exception"] = {
-            "type": record["exception"].type.__name__ if record["exception"].type else None,
-            "value": str(record["exception"].value) if record["exception"].value else None,
+            "type": record["exception"].type.__name__
+            if record["exception"].type
+            else None,
+            "value": str(record["exception"].value)
+            if record["exception"].value
+            else None,
             "traceback": str(record["exception"]),
         }
 
@@ -197,9 +201,8 @@ def setup_logger(
         intercept_handler = InterceptHandler()
         logging.basicConfig(handlers=[intercept_handler], level=0, force=True)
 
-    logger.bind(component="bootstrap").info(
-        "Logger configured: log_dir={}", log_path
-    )
+    logger.bind(component="bootstrap").info("Logger configured: log_dir={}", log_path)
+
 
 def get_logger(*, component: str | None = None, **extra):
     log = logger

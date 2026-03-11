@@ -1,7 +1,6 @@
-import asyncio
 from telethon import TelegramClient, events
-#from loguru import logger
 
+import asyncio
 import signal
 from config import Settings
 from userbot_client import UserBot
@@ -13,10 +12,11 @@ from keyboards import (
     back_to_menu,
     action_buttons,
 )
+from llm import LLMProvider
 from app_logger import get_logger
 
 
-logger = get_logger(component="mainbot")
+LOGGER = get_logger(component="mainbot")
 
 
 class MainBot:
@@ -27,12 +27,14 @@ class MainBot:
         userbot: UserBot,
         fsm: FSM,
         dispatcher: RedisFSMDispatcher,
+        llm_provider: LLMProvider,
     ) -> None:
         self._client = client
         self.__token = config.app.token.get_secret_value()
         self._userbot = userbot
         self._fsm = fsm
         self.dispatcher = dispatcher
+        self._llm_provider = llm_provider
 
         self._register_handler()
 
@@ -101,20 +103,25 @@ class MainBot:
 
             res = await self._userbot.get_messages(channel, limit)
 
-            logger.info(res["messages"][0])
+            #TODO: дебаг логи, удалить
+            LOGGER.info(res["messages"])
+            LOGGER.info(res["channel"])
+            LOGGER.info(res["messages"][0])
 
             id_list = [i.id for i in res["messages"]]
-
+            test = await self._llm_provider.send_message(res["messages"])
+            LOGGER.info("{}", test)
             # Редактируем сообщение с результатом
             await self._client.edit_message(
                 chat_id,
                 bot_msg_id,
-                f"✅ Получено \n **{'\n'.join([channel + '/' + str(j) for j in id_list])}** \nсообщений из канала **{res['channel'].title}**",
+                f"✅ Получено \n **{'\n'.join([channel + '/' + str(j) for j in id_list])}** \nсообщений из канала **{res['channel'].title}** \n\
+                Саммари: \n{test["model_message"]}",
                 buttons=action_buttons(),
             )
             await self._fsm.reset(ctx.key)
         except Exception as e:
-            logger.exception("Ошибка при получении сообщений")
+            LOGGER.exception("Ошибка при получении сообщений")
             if bot_msg_id:
                 await self._client.edit_message(
                     chat_id, bot_msg_id, f"❌ Ошибка: {e}", buttons=back_to_menu()
@@ -129,14 +136,14 @@ class MainBot:
         try:
             await self.dispatcher.dispatch(event)
         except Exception:
-            logger.exception("FSM handler crashed")
+            LOGGER.exception("FSM handler crashed")
 
     async def on_callback(self, event: events.CallbackQuery.Event):
         """Обработчик callback-запросов от inline-кнопок."""
         try:
             await self.dispatcher.dispatch_callback(event)
         except Exception:
-            logger.exception("Callback handler crashed")
+            LOGGER.exception("Callback handler crashed")
 
     def _register_handler(self):
         """Регистрирует все хендлеры через единый диспатчер."""
@@ -262,7 +269,7 @@ class MainBot:
         loop = asyncio.get_running_loop()
 
         def request_shutdown() -> None:
-            logger.info("Shutdown requested")
+            LOGGER.info("Shutdown requested")
             loop.create_task(self._shutdown())
 
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -283,17 +290,17 @@ class MainBot:
 
     async def _shutdown(self) -> None:
         """Graceful shutdown для всех клиентов."""
-        logger.info("Shutting down...")
+        LOGGER.info("Shutting down...")
 
         # Останавливаем UserBot
         try:
             await self._userbot.stop()
         except Exception:
-            logger.exception("Error stopping UserBot")
+            LOGGER.exception("Error stopping UserBot")
 
         # Закрываем Bot клиент
         try:
             if self._client.is_connected():
                 await self._client.disconnect()
         except Exception:
-            logger.exception("Error disconnecting Bot client")
+            LOGGER.exception("Error disconnecting Bot client")

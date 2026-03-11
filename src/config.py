@@ -97,11 +97,13 @@ class RedisSecrets(BaseModel):
 class LLMSecrets(BaseModel):
     model: str = ""
     temperature: float = 1.0
-    timeout: int = 10
+    timeout: int = 30
     tokens: int = 8000
     max_retries: int = 0
     api_key: SecretStr = Field(default=SecretStr(""))
     api_url: Optional[str] | None = None
+
+    system_prompt: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

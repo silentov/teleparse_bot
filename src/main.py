@@ -1,14 +1,17 @@
-#from loguru import logger
+# from loguru import logger
+from telethon import TelegramClient
+from langchain.chat_models import init_chat_model
 
 import asyncio
-from telethon import TelegramClient
+from pathlib import Path
+
 from bot_client import MainBot
 from config import get_settings
 from infrastructure.redis import RedisManager, RedisService, LockService
 from fsm import FSM, RedisFSMDispatcher
 from userbot_client import UserBot
 from app_logger import setup_logger, get_logger
-from pathlib import Path
+from llm import LLMProvider
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -43,6 +46,8 @@ async def main():
         redis_service = RedisService(redis=r_client)
         lock_service = LockService(redis=r_client)
 
+        llm_provider = LLMProvider(config=settings)
+
         tbot_client = TelegramClient(
             "bot_session",
             int(settings.app.api_id.get_secret_value()),
@@ -64,6 +69,7 @@ async def main():
             userbot=UserBot(client=tuserbot_client),
             fsm=fsm,
             dispatcher=dispatcher,
+            llm_provider=llm_provider,
         )
 
         LOGGER.info("Запускаем бота...")

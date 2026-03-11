@@ -65,7 +65,7 @@ class RedisService:
             nx=only_if_not_exists,
         )
         return bool(result)
-    
+
     async def get_fsm_context(
         self, chat_id: int, user_id: int
     ) -> dict[str, Any] | None:
@@ -104,9 +104,9 @@ class RedisService:
 
     async def update_fsm_data(self, chat_id: int, user_id: int, **data) -> bool:
         key = RedisKeys.fsm_context(chat_id, user_id)
-        
+
         LOGGER.info("Обновляем данные в Redis, chat_id: {}", chat_id)
-        
+
         # Get existing data to merge
         raw = await self._redis.hgetall(key)  # pyright: ignore[reportGeneralTypeIssues]
         existing_data = {}
