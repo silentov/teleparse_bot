@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 class RedisKeys:
-    PREFIX = "myapp"
+    #PREFIX = "myapp"
 
     @classmethod
     def _join(cls, *parts: object) -> str:

@@ -1,19 +1,43 @@
-from telethon import TelegramClient, events
-
 import asyncio
 import signal
-from config import Settings
-from userbot_client import UserBot
-from fsm import RedisFSMDispatcher, FSMState, FSM, FSMContext
-from keyboards import (
-    main_menu,
-    limit_picker,
-    cancel_button,
-    back_to_menu,
-    action_buttons,
-)
-from llm import LLMProvider
+
+from telethon import TelegramClient, events
+
 from app_logger import get_logger
+from bot.keyboards import (
+    action_buttons,
+    back_to_menu,
+    cancel_button,
+    limit_picker,
+    main_menu,
+)
+from bot.texts.const import (
+    CANCEL_MESSAGE,
+    CUSTOM_LIMIT_ERROR,
+    CUSTOM_LIMIT_PROMPT,
+    HELP_MESSAGE,
+    LIMIT_ERROR_MESSAGE,
+    MAIN_MENU_MESSAGE,
+    START_MESSAGE,
+    UNKNOWN_MESSAGE,
+    WAITING_CHANNEL_MESSAGE,
+)
+from bot.texts.editable import (
+    error_text,
+    get_limit_text,
+    get_summary_text,
+    load_posts_text,
+)
+from bot.userbot_client import UserBot
+from config import Settings
+from exceptions import (
+    AppError,
+    InvalidUserInputError,
+    LLMProviderError,
+    TelegramAccessError,
+)
+from fsm import FSM, FSMContext, FSMState, RedisFSMDispatcher
+from llm import LLMProvider
 
 
 LOGGER = get_logger(component="mainbot")
@@ -41,18 +65,17 @@ class MainBot:
     async def start_handler(self, event: events.NewMessage.Event, ctx: FSMContext):
         """Хендлер команды /start."""
         await event.reply(
-            "👋 Привет! Я бот для парсинга Telegram-каналов.\n\nВыберите действие:",
+            START_MESSAGE,
             buttons=main_menu(),
         )
         await self._fsm.reset(ctx.key)
         ctx = await self._fsm.get_ctx(ctx.key)
-        await self._fsm.set_state(ctx, FSMState.DEFAULT)
 
     async def get_messages_limit(self, event: events.NewMessage.Event, ctx: FSMContext):
         """Хендлер состояния wait_channel - получение имени канала."""
         ch = (event.raw_text or "").strip()
         msg = await event.reply(
-            f"📊 Канал: **{ch}**\n\nСколько постов получить?", buttons=limit_picker()
+            get_limit_text(ch), buttons=limit_picker()
         )
         await self._fsm.update_data(ctx, channel=ch, bot_message_id=msg.id)
         await self._fsm.set_state(ctx, FSMState.WAIT_LIMIT)
@@ -66,7 +89,7 @@ class MainBot:
             limit = int(text)
             if limit <= 0:
                 msg = await event.reply(
-                    "❌ Лимит должен быть положительным числом. Повторите:",
+                    CUSTOM_LIMIT_ERROR,
                     buttons=cancel_button(),
                 )
                 await self._fsm.update_data(ctx, bot_message_id=msg.id)
@@ -76,12 +99,17 @@ class MainBot:
             await self._parse_and_send(ctx, ch, limit)
         except ValueError:
             msg = await event.reply(
-                "❌ Лимит должен быть числом. Повторите:", buttons=cancel_button()
+                CUSTOM_LIMIT_ERROR, buttons=cancel_button()
             )
             await self._fsm.update_data(ctx, bot_message_id=msg.id)
             return
 
-    async def _parse_and_send(self, ctx: FSMContext, channel: str | None, limit: int):
+    async def _parse_and_send(
+        self,
+        ctx: FSMContext,
+        channel: str,
+        limit: int,
+    ) -> None:
         """Общий метод для парсинга и отправки результата."""
         bot_msg_id = ctx.data.get("bot_message_id")
         chat_id = ctx.key[0]
@@ -92,45 +120,76 @@ class MainBot:
                 await self._client.edit_message(
                     chat_id,
                     bot_msg_id,
-                    f"⏳ Получаю {limit} постов из канала **{channel}**...",
+                    load_posts_text(limit=limit, channel=channel),
                 )
             else:
                 # Если ID нет (не должно быть), отправляем новое
                 msg = await self._client.send_message(
-                    chat_id, f"⏳ Получаю {limit} постов из канала **{channel}**..."
+                    chat_id, load_posts_text(limit=limit, channel=channel)
                 )
                 bot_msg_id = msg.id
 
-            res = await self._userbot.get_messages(channel, limit)
+            channel_result = await self._userbot.get_messages(channel, limit)
+            LOGGER.info(
+                "Получены сообщения: channel={}, count={}",
+                channel,
+                len(channel_result.messages),
+            )
 
-            #TODO: дебаг логи, удалить
-            LOGGER.info(res["messages"])
-            LOGGER.info(res["channel"])
-            LOGGER.info(res["messages"][0])
-
-            id_list = [i.id for i in res["messages"]]
-            test = await self._llm_provider.send_message(res["messages"])
-            LOGGER.info("{}", test)
+            id_list = [message.id for message in channel_result.messages]
+            summary_result = await self._llm_provider.send_message(
+                channel_result.messages
+            )
+            LOGGER.info("Сводка LLM сформирована")
             # Редактируем сообщение с результатом
             await self._client.edit_message(
                 chat_id,
                 bot_msg_id,
-                f"✅ Получено \n **{'\n'.join([channel + '/' + str(j) for j in id_list])}** \nсообщений из канала **{res['channel'].title}** \n\
-                Саммари: \n{test["model_message"]}",
+                get_summary_text(
+                    ch=channel,
+                    id_list=id_list,
+                    channel_result=channel_result,
+                    summary=summary_result,
+                ),
                 buttons=action_buttons(),
             )
             await self._fsm.reset(ctx.key)
+        except InvalidUserInputError as e:
+            await self._handle_parse_error(chat_id, bot_msg_id, e)
+            await self._fsm.reset(ctx.key)
+        except TelegramAccessError as e:
+            await self._handle_parse_error(chat_id, bot_msg_id, e)
+            await self._fsm.reset(ctx.key)
+        except LLMProviderError as e:
+            await self._handle_parse_error(chat_id, bot_msg_id, e)
+            await self._fsm.reset(ctx.key)
+        except AppError as e:
+            await self._handle_parse_error(chat_id, bot_msg_id, e)
+            await self._fsm.reset(ctx.key)
         except Exception as e:
             LOGGER.exception("Ошибка при получении сообщений")
-            if bot_msg_id:
-                await self._client.edit_message(
-                    chat_id, bot_msg_id, f"❌ Ошибка: {e}", buttons=back_to_menu()
-                )
-            else:
-                await self._client.send_message(
-                    chat_id, f"❌ Ошибка: {e}", buttons=back_to_menu()
-                )
+            await self._handle_parse_error(chat_id, bot_msg_id, e)
             await self._fsm.reset(ctx.key)
+
+    async def _handle_parse_error(
+        self,
+        chat_id: int,
+        bot_msg_id: int | None,
+        error: Exception,
+    ) -> None:
+        if bot_msg_id:
+            await self._client.edit_message(
+                chat_id,
+                bot_msg_id,
+                error_text(error),
+                buttons=back_to_menu(),
+            )
+        else:
+            await self._client.send_message(
+                chat_id,
+                error_text(error),
+                buttons=back_to_menu(),
+            )
 
     async def on_message(self, event: events.NewMessage.Event):
         try:
@@ -179,7 +238,7 @@ class MainBot:
     async def default_handler(self, event: events.NewMessage.Event, ctx: FSMContext):
         """Хендлер по умолчанию для неизвестных команд."""
         await event.reply(
-            "👋 Используйте /start для начала работы", buttons=main_menu()
+            UNKNOWN_MESSAGE, buttons=main_menu()
         )
 
     # === Callback handlers ===
@@ -188,10 +247,14 @@ class MainBot:
         self, event: events.CallbackQuery.Event, ctx: FSMContext
     ):
         """Callback: начать получение сообщений."""
+        LOGGER.info(
+            "Пользователь запросил получение постов: user_id={}, chat_id={}",
+            event.sender_id,
+            event.chat_id,
+        )
         await event.answer()
         await event.edit(
-            "📝 Введите имя канала, из которого хочешь получить посты.\n\n"
-            "Формат: имя канала после t.me/ (например, для t.me/durov_russia введите **durov_russia**)",
+            WAITING_CHANNEL_MESSAGE,
             buttons=cancel_button(),
         )
         # Сохраняем ID сообщения бота для последующего редактирования
@@ -202,13 +265,7 @@ class MainBot:
         """Callback: показать помощь."""
         await event.answer()
         await event.edit(
-            "ℹ️ **Помощь**\n\n"
-            "Этот бот позволяет получать сообщения из публичных Telegram-каналов.\n\n"
-            "**Как использовать:**\n"
-            "1. Нажмите «📥 Получить посты»\n"
-            "2. Введите имя канала (например, durov_russia)\n"
-            "3. Выберите количество постов или введите своё значение\n\n"
-            "**Примечание:** Бот может получать посты только из публичных каналов.",
+            HELP_MESSAGE,
             buttons=back_to_menu(),
         )
 
@@ -218,7 +275,7 @@ class MainBot:
         await self._client.edit_message(
             event.chat_id,
             event.message_id,
-            "❌ Действие отменено.\n\nВыберите действие:",
+            CANCEL_MESSAGE,
             buttons=main_menu(),
         )
         await self._fsm.reset(ctx.key)
@@ -231,7 +288,7 @@ class MainBot:
         await self._client.edit_message(
             event.chat_id,
             event.message_id,
-            "🏠 Главное меню\n\nВыберите действие:",
+            MAIN_MENU_MESSAGE,
             buttons=main_menu(),
         )
         await self._fsm.reset(ctx.key)
@@ -247,7 +304,7 @@ class MainBot:
         if callback_data == "limit:custom":
             # Пользователь хочет ввести своё значение
             await event.edit(
-                "📝 Введите количество постов (число):", buttons=cancel_button()
+                CUSTOM_LIMIT_PROMPT, buttons=cancel_button()
             )
             # Сохраняем ID сообщения бота
             await self._fsm.update_data(ctx, bot_message_id=event.message_id)
@@ -262,7 +319,7 @@ class MainBot:
                 await self._fsm.update_data(ctx, bot_message_id=event.message_id)
                 await self._parse_and_send(ctx, channel, limit)
             except (ValueError, IndexError):
-                await event.edit("❌ Ошибка обработки лимита", buttons=back_to_menu())
+                await event.edit(LIMIT_ERROR_MESSAGE, buttons=back_to_menu())
                 await self._fsm.reset(ctx.key)
 
     async def run(self) -> None:

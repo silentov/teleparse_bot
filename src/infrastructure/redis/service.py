@@ -67,7 +67,11 @@ class RedisService:
         return bool(result)
 
     async def get_fsm_context(
-        self, chat_id: int, user_id: int
+        self,
+        chat_id: int,
+        user_id: int,
+        *,
+        touch_ttl_sec: int | None = None,
     ) -> dict[str, Any] | None:
         key = RedisKeys.fsm_context(chat_id, user_id)
         raw = await self._redis.hgetall(key)  # pyright: ignore[reportGeneralTypeIssues]
@@ -80,8 +84,8 @@ class RedisService:
             LOGGER.error("Ошибка декодинга данных: {}", e)
             data = {}
 
-        # Update TTL
-        await self._redis.expire(key, 1800)
+        if touch_ttl_sec is not None:
+            await self._redis.expire(key, touch_ttl_sec)
 
         return {
             "key": (chat_id, user_id),
@@ -90,19 +94,67 @@ class RedisService:
             "updated_at": raw.get("updated_at", ""),
         }
 
-    async def set_fsm_state(self, chat_id: int, user_id: int, state: str) -> bool:
+    async def set_fsm_state(
+        self,
+        chat_id: int,
+        user_id: int,
+        state: str,
+        *,
+        ttl_sec: int | None = None,
+    ) -> bool:
         key = RedisKeys.fsm_context(chat_id, user_id)
-        LOGGER.info("Устанавливаем состояние {} для {}", state, user_id)
+        LOGGER.info(
+            "Persist FSM state: state={} chat_id={} user_id={}",
+            state,
+            chat_id,
+            user_id,
+        )
 
         result = await self._redis.hset(
             key, mapping={"state": state, "updated_at": str(int(time.time()))}
         )  # pyright: ignore[reportGeneralTypeIssues]
 
-        # Keep the same TTL as for user state
-        await self._redis.expire(key, 1800)
+        if ttl_sec is not None:
+            await self._redis.expire(key, ttl_sec)
         return bool(result)
 
-    async def update_fsm_data(self, chat_id: int, user_id: int, **data) -> bool:
+    async def set_fsm_data(
+        self,
+        chat_id: int,
+        user_id: int,
+        data: dict[str, Any],
+        *,
+        ttl_sec: int | None = None,
+    ) -> bool:
+        key = RedisKeys.fsm_context(chat_id, user_id)
+        LOGGER.info(
+            "Persist FSM data: keys={} chat_id={} user_id={}",
+            sorted(data.keys()),
+            chat_id,
+            user_id,
+        )
+
+        result = await self._redis.hset(
+            key,
+            mapping={
+                "data": orjson.dumps(data),
+                "updated_at": str(int(time.time())),
+            },
+        )  # pyright: ignore[reportGeneralTypeIssues]
+
+        if ttl_sec is not None:
+            await self._redis.expire(key, ttl_sec)
+
+        return bool(result)
+
+    async def update_fsm_data(
+        self,
+        chat_id: int,
+        user_id: int,
+        *,
+        ttl_sec: int | None = None,
+        **data: Any,
+    ) -> bool:
         key = RedisKeys.fsm_context(chat_id, user_id)
 
         LOGGER.info("Обновляем данные в Redis, chat_id: {}", chat_id)
@@ -127,8 +179,10 @@ class RedisService:
                 "updated_at": str(int(time.time())),
             },
         )  # pyright: ignore[reportGeneralTypeIssues]
-        # Keep the same TTL as for user state
-        await self._redis.expire(key, 1800)
+
+        if ttl_sec is not None:
+            await self._redis.expire(key, ttl_sec)
+
         return bool(result)
 
     async def reset_fsm(self, chat_id: int, user_id: int) -> int:

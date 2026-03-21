@@ -1,16 +1,16 @@
-# from loguru import logger
-from telethon import TelegramClient
-from langchain.chat_models import init_chat_model
-
 import asyncio
+import os
 from pathlib import Path
 
-from bot_client import MainBot
+from telethon import TelegramClient
+
+from bot.bot_client import MainBot
 from config import get_settings
 from infrastructure.redis import RedisManager, RedisService, LockService
 from fsm import FSM, RedisFSMDispatcher
-from userbot_client import UserBot
+from bot.userbot_client import UserBot
 from app_logger import setup_logger, get_logger
+from exceptions import AppError
 from llm import LLMProvider
 
 
@@ -20,9 +20,11 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 async def main():
+    app_env = os.getenv("APP_ENV", "local").strip().lower()
+
     setup_logger(
         app_name="teleparse_bot",
-        env="local",
+        env=app_env,
         level="INFO",
         log_dir=LOG_DIR,
         log_json=False,
@@ -60,7 +62,11 @@ async def main():
             str(settings.app.api_hash.get_secret_value()),
         )
 
-        fsm = FSM(redis_service, lock_service, ttl_seconds=30 * 60)
+        fsm = FSM(
+            redis_service,
+            lock_service,
+            ttl_seconds=settings.redis.ttl_second,
+        )
         dispatcher = RedisFSMDispatcher(fsm=fsm)
 
         bot = MainBot(
@@ -74,8 +80,10 @@ async def main():
 
         LOGGER.info("Запускаем бота...")
         await bot.run()
-    except Exception:
-        LOGGER.exception("Ошибка: ")
+    except AppError as e:
+        LOGGER.exception("Ошибка приложения: {}", e)
+    except Exception as e:
+        LOGGER.exception("Ошибка: {}", e)
     finally:
         LOGGER.complete()
         await redis_manager.stop()

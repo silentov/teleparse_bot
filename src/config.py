@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import os
+from enum import Enum
 from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
-from typing import Optional
-from enum import Enum
+from typing import Any
 
 from pydantic import SecretStr, field_validator, model_validator, BaseModel, Field
 from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from loguru import logger
 
+from exceptions import ConfigurationError
 
-class Envinroment(str, Enum):
+
+class Environment(str, Enum):
     LOCAL = "local"
     PROD = "prod"
 
@@ -55,7 +57,6 @@ class RedisSecrets(BaseModel):
     url: RedisDsn | None = None
 
     model_config = SettingsConfigDict(
-        env_file=".env",
         env_prefix="REDIS_",
         extra="ignore",
     )
@@ -101,19 +102,18 @@ class LLMSecrets(BaseModel):
     tokens: int = 8000
     max_retries: int = 0
     api_key: SecretStr = Field(default=SecretStr(""))
-    api_url: Optional[str] | None = None
+    api_url: str | None = None
 
     system_prompt: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
         env_prefix="LLM_",
         extra="ignore",
     )
 
     @field_validator("temperature")
     @classmethod
-    def validate_db(cls, value: int) -> float:
+    def validate_temperature(cls, value: float) -> float:
         if value < 0:
             raise ValueError("Температура модели должна быть >= 0.0")
         return value
@@ -131,15 +131,13 @@ class Settings(BaseSettings):
     5. default values
     """
 
-    env: Envinroment = Envinroment.LOCAL
+    env: Environment = Environment.LOCAL
 
     app: AppSecrets = AppSecrets()
     redis: RedisSecrets = RedisSecrets()
     llm: LLMSecrets = LLMSecrets()
 
     model_config = SettingsConfigDict(
-        env_file="D:/projects/py_teleparse/src/.secrets/.env",
-        # secrets_dir="D:/projects/py_teleparse/src/.secrets",
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         extra="ignore",
@@ -150,15 +148,18 @@ class Settings(BaseSettings):
     def from_sources(
         cls,
         *,
-        app_env: Envinroment,
+        app_env: Environment,
         env_file: str | Path | None = None,
         secrets_dir: str | Path | None = None,
     ) -> "Settings":
-        kwargs = {
-            "_env_file": str(env_file) if env_file is not None else None,
-            "_secrets_dir": str(secrets_dir) if secrets_dir is not None else None,
-            "app_env": app_env,
-        }
+        kwargs: dict[str, Any] = {"env": app_env}
+
+        if env_file is not None:
+            kwargs["_env_file"] = str(env_file)
+
+        if secrets_dir is not None:
+            kwargs["_secrets_dir"] = str(secrets_dir)
+
         return cls(**kwargs)
 
     def safe_dump(self) -> dict:
@@ -216,7 +217,7 @@ class Settings(BaseSettings):
 
 def resolve_local_env_file() -> Path:
     """
-    Ожидаем файл: <project_root>/src/.secrets/env
+    Ожидаем файл: <project_root>/src/.secrets/.env
     """
     base_dir = Path(__file__).resolve()
     # logger.debug("{}", base_dir)
@@ -256,13 +257,16 @@ def resolve_prod_secrets_dir() -> Path | None:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     raw_env = os.getenv("APP_ENV", "local").strip().lower()
-    app_env = Envinroment(raw_env)
+    try:
+        app_env = Environment(raw_env)
+    except ValueError as exc:
+        raise ConfigurationError(f"Неподдерживаемый APP_ENV: {raw_env}") from exc
 
-    if app_env is Envinroment.LOCAL:
+    if app_env is Environment.LOCAL:
         env_file = resolve_local_env_file()
 
         if not env_file.exists() or not env_file.is_file():
-            raise RuntimeError(f"Local env file not found: {env_file}")
+            raise ConfigurationError(f"Local env file not found: {env_file}")
 
         logger.info("Режим local, загружаю env_file: {}", env_file)
 
@@ -275,7 +279,9 @@ def get_settings() -> Settings:
         secrets_dir = resolve_prod_secrets_dir()
 
         if secrets_dir is None:
-            raise RuntimeError("APP_ENV=prod, но директория Docker Secrets не найдена")
+            raise ConfigurationError(
+                "APP_ENV=prod, но директория Docker Secrets не найдена"
+            )
 
         logger.info("Режим prod, загружаю secrets_dir: {}", secrets_dir)
 

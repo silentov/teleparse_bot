@@ -22,7 +22,8 @@ redis.conf
 
 docker-compose.yaml
 
-.clainrules
+.clinerules
+.plans
 .ruff_cache
 
 uv.lock

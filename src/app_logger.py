@@ -101,9 +101,9 @@ def setup_logger(
 ) -> None:
     os.environ["APP_NAME"] = app_name
     os.environ["APP_ENV"] = env
+    is_local_env = env.lower() == "local"
 
     log_path = Path(log_dir).expanduser().resolve()
-    print(log_path)
     log_path.mkdir(parents=True, exist_ok=True)
 
     logger.remove()
@@ -129,8 +129,8 @@ def setup_logger(
         level=level.upper(),
         format=_console_format,
         colorize=True,
-        backtrace=True,
-        diagnose=True,
+        backtrace=is_local_env,
+        diagnose=is_local_env,
         enqueue=True,
         catch=True,
     )
@@ -154,7 +154,7 @@ def setup_logger(
             encoding="utf-8",
             enqueue=True,
             catch=True,
-            backtrace=True,
+            backtrace=is_local_env,
             diagnose=False,
             rotation="100 MB",
             retention="30 days",
@@ -175,7 +175,7 @@ def setup_logger(
             encoding="utf-8",
             enqueue=True,
             catch=True,
-            backtrace=True,
+            backtrace=is_local_env,
             diagnose=False,
             rotation="50 MB",
             retention="60 days",
