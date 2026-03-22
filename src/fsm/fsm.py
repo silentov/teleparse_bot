@@ -127,3 +127,7 @@ class FSM:
     def lock(self, key: Key, *, ttl_ms: int = 15000) -> RedisLock:
         chat_id, user_id = key
         return self.lock_service.fsm(chat_id, user_id, ttl_ms=ttl_ms)
+
+    def processing_key(self, key: Key) -> str:
+        chat_id, user_id = key
+        return f"fsm:processing:{chat_id}:{user_id}"

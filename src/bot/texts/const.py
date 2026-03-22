@@ -3,6 +3,8 @@ START_MESSAGE = "👋 Привет! Я бот для парсинга Telegram-�
 CUSTOM_LIMIT_ERROR = "❌ Лимит должен быть положительным числом. Повторите:"
 
 UNKNOWN_MESSAGE = "👋 Используйте /start для начала работы"
+UNKNOWN_COMMAND_MESSAGE = "❓ Неизвестная команда. Доступно: /start, /help, /cancel"
+BUSY_PROCESSING_MESSAGE = "⏳ Уже обрабатываю ваш предыдущий запрос. Дождитесь завершения или нажмите /cancel."
 
 WAITING_CHANNEL_MESSAGE = "📝 Введите имя канала, из которого хочешь получить посты.\n\n" \
             "Формат: имя канала после t.me/ (например, для t.me/durov_russia введите **durov_russia**)"
@@ -22,3 +24,4 @@ MAIN_MENU_MESSAGE = "🏠 Главное меню\n\nВыберите дейст
 LIMIT_ERROR_MESSAGE = "❌ Ошибка обработки лимита"
 
 CUSTOM_LIMIT_PROMPT = "📝 Введите количество постов (число):"
+WAIT_LIMIT_TEXT_PROMPT = "👇 Выберите лимит кнопками ниже или нажмите «Отмена». Текст в этом шаге не принимается."

@@ -1,5 +1,6 @@
 from telethon import TelegramClient
 from telethon.errors import RPCError
+from telethon import events
 
 from app_logger import get_logger
 from exceptions import (

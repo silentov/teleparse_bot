@@ -12,6 +12,7 @@ from bot.keyboards import (
     main_menu,
 )
 from bot.texts.const import (
+    BUSY_PROCESSING_MESSAGE,
     CANCEL_MESSAGE,
     CUSTOM_LIMIT_ERROR,
     CUSTOM_LIMIT_PROMPT,
@@ -19,8 +20,10 @@ from bot.texts.const import (
     LIMIT_ERROR_MESSAGE,
     MAIN_MENU_MESSAGE,
     START_MESSAGE,
+    UNKNOWN_COMMAND_MESSAGE,
     UNKNOWN_MESSAGE,
     WAITING_CHANNEL_MESSAGE,
+    WAIT_LIMIT_TEXT_PROMPT,
 )
 from bot.texts.editable import (
     error_text,
@@ -80,6 +83,7 @@ class MainBot:
         await self._fsm.update_data(ctx, channel=ch, bot_message_id=msg.id)
         await self._fsm.set_state(ctx, FSMState.WAIT_LIMIT)
 
+    @RedisFSMDispatcher.run_outside_lock
     async def get_messages_custom_limit(
         self, event: events.NewMessage.Event, ctx: FSMContext
     ):
@@ -103,6 +107,205 @@ class MainBot:
             )
             await self._fsm.update_data(ctx, bot_message_id=msg.id)
             return
+
+    async def _handle_parse_error(
+        self,
+        chat_id: int,
+        bot_msg_id: int | None,
+        error: Exception,
+    ) -> None:
+        if bot_msg_id:
+            await self._client.edit_message(
+                chat_id,
+                bot_msg_id,
+                error_text(error),
+                buttons=back_to_menu(),
+            )
+        else:
+            await self._client.send_message(
+                chat_id,
+                error_text(error),
+                buttons=back_to_menu(),
+            )
+
+    async def on_message(self, event: events.NewMessage.Event):
+        try:
+            await self.dispatcher.dispatch(event)
+        except Exception:
+            LOGGER.exception("FSM handler crashed")
+
+    async def on_callback(self, event: events.CallbackQuery.Event):
+        """Обработчик callback-запросов от inline-кнопок."""
+        try:
+            await self.dispatcher.dispatch_callback(event)
+        except Exception:
+            LOGGER.exception("Callback handler crashed")
+
+    def _register_handler(self):
+        """Регистрирует все хендлеры через единый диспатчер."""
+        # Все сообщения идут через диспатчер
+        self._client.add_event_handler(
+            self.on_message, events.NewMessage(incoming=True)
+        )
+
+        # Все callback-запросы идут через диспатчер
+        self._client.add_event_handler(self.on_callback, events.CallbackQuery())
+
+        # Регистрируем хендлеры команд в диспатчере
+        self.dispatcher.handlers[FSMState.DEFAULT] = self.default_handler
+        self.dispatcher.handlers["/start"] = self.start_handler
+        self.dispatcher.handlers["/help"] = self.command_help
+        self.dispatcher.handlers["/cancel"] = self.command_cancel
+        self.dispatcher.handlers["unknown_command"] = self.unknown_command_handler
+        self.dispatcher.handlers["contention"] = self.contention_handler
+
+        # Регистрируем хендлеры состояний FSM
+        self.dispatcher.handlers[FSMState.WAIT_CHANNEL] = self.get_messages_limit
+        self.dispatcher.handlers[FSMState.WAIT_LIMIT] = self.wait_limit_text_handler
+        self.dispatcher.handlers[FSMState.WAIT_CUSTOM_LIMIT] = (
+            self.get_messages_custom_limit
+        )
+
+        # Регистрируем callback-хендлеры
+        self.dispatcher.callback_handlers["cmd:get_messages"] = (
+            self.callback_get_messages
+        )
+        self.dispatcher.callback_handlers["cmd:help"] = self.callback_help
+        self.dispatcher.callback_handlers["cmd:cancel"] = self.callback_cancel
+        self.dispatcher.callback_handlers["cmd:main_menu"] = self.callback_main_menu
+        self.dispatcher.callback_handlers["limit:"] = (
+            self.callback_limit
+        )  # Префикс для всех limit:*
+        self.dispatcher.callback_handlers["contention"] = self.callback_contention_handler
+
+        LOGGER.info(
+            "Зарегистрированы следующие хендлеры: \n{} \n{}",
+            self.dispatcher.handlers, 
+            self.dispatcher.callback_handlers
+        )
+
+    async def default_handler(self, event: events.NewMessage.Event, ctx: FSMContext):
+        """Хендлер по умолчанию для неизвестных команд."""
+        await event.reply(
+            UNKNOWN_MESSAGE, buttons=main_menu()
+        )
+
+    async def unknown_command_handler(self, event: events.NewMessage.Event, ctx: FSMContext):
+        await event.reply(UNKNOWN_COMMAND_MESSAGE, buttons=main_menu())
+
+    async def contention_handler(self, event: events.NewMessage.Event, ctx: FSMContext):
+        LOGGER.warning(
+            "FSM contention for user update: user_id={}, chat_id={}, state={}",
+            event.sender_id,
+            event.chat_id,
+            ctx.state,
+        )
+        await event.reply(BUSY_PROCESSING_MESSAGE, buttons=cancel_button())
+
+    async def callback_contention_handler(
+        self, event: events.CallbackQuery.Event, ctx: FSMContext
+    ):
+        LOGGER.warning(
+            "FSM contention for callback: user_id={}, chat_id={}, state={}",
+            event.sender_id,
+            event.chat_id,
+            ctx.state,
+        )
+        await event.answer(BUSY_PROCESSING_MESSAGE, alert=False)
+
+    async def command_help(self, event: events.NewMessage.Event, ctx: FSMContext):
+        await event.reply(HELP_MESSAGE, buttons=back_to_menu())
+
+    async def command_cancel(self, event: events.NewMessage.Event, ctx: FSMContext):
+        await self._fsm.reset(ctx.key)
+        await event.reply(CANCEL_MESSAGE, buttons=main_menu())
+
+    async def wait_limit_text_handler(
+        self, event: events.NewMessage.Event, ctx: FSMContext
+    ):
+        await event.reply(WAIT_LIMIT_TEXT_PROMPT, buttons=limit_picker())
+
+    # === Callback handlers ===
+
+    async def callback_get_messages(
+        self, event: events.CallbackQuery.Event, ctx: FSMContext
+    ):
+        """Callback: начать получение сообщений."""
+        LOGGER.info(
+            "Пользователь запросил получение постов: user_id={}, chat_id={}",
+            event.sender_id,
+            event.chat_id,
+        )
+        await event.answer()
+        await event.edit(
+            WAITING_CHANNEL_MESSAGE,
+            buttons=cancel_button(),
+        )
+        # Сохраняем ID сообщения бота для последующего редактирования
+        await self._fsm.update_data(ctx, bot_message_id=event.message_id)
+        await self._fsm.set_state(ctx, FSMState.WAIT_CHANNEL)
+
+    async def callback_help(self, event: events.CallbackQuery.Event, ctx: FSMContext):
+        """Callback: показать помощь."""
+        await event.answer()
+        await event.edit(
+            HELP_MESSAGE,
+            buttons=back_to_menu(),
+        )
+
+    async def callback_cancel(self, event: events.CallbackQuery.Event, ctx: FSMContext):
+        """Callback: отменить текущее действие."""
+        await event.answer("❌ Отменено")
+        await self._client.edit_message(
+            event.chat_id,
+            event.message_id,
+            CANCEL_MESSAGE,
+            buttons=main_menu(),
+        )
+        await self._fsm.reset(ctx.key)
+
+    async def callback_main_menu(
+        self, event: events.CallbackQuery.Event, ctx: FSMContext
+    ):
+        """Callback: вернуться в главное меню."""
+        await event.answer()
+        await self._client.edit_message(
+            event.chat_id,
+            event.message_id,
+            MAIN_MENU_MESSAGE,
+            buttons=main_menu(),
+        )
+        await self._fsm.reset(ctx.key)
+
+    @RedisFSMDispatcher.run_outside_lock
+    async def callback_limit(self, event: events.CallbackQuery.Event, ctx: FSMContext):
+        """Callback: выбор лимита постов."""
+        await event.answer()
+
+        callback_data = (
+            event.data.decode("utf-8") if isinstance(event.data, bytes) else event.data
+        )
+
+        if callback_data == "limit:custom":
+            # Пользователь хочет ввести своё значение
+            await event.edit(
+                CUSTOM_LIMIT_PROMPT, buttons=cancel_button()
+            )
+            # Сохраняем ID сообщения бота
+            await self._fsm.update_data(ctx, bot_message_id=event.message_id)
+            await self._fsm.set_state(ctx, FSMState.WAIT_CUSTOM_LIMIT)
+        else:
+            # Пользователь выбрал предустановленное значение
+            limit_str = callback_data.split(":")[1]
+            try:
+                limit = int(limit_str)
+                channel = ctx.data.get("channel")
+                # Сохраняем ID перед парсингом
+                await self._fsm.update_data(ctx, bot_message_id=event.message_id)
+                await self._parse_and_send(ctx, channel, limit)
+            except (ValueError, IndexError):
+                await event.edit(LIMIT_ERROR_MESSAGE, buttons=back_to_menu())
+                await self._fsm.reset(ctx.key)
 
     async def _parse_and_send(
         self,
@@ -170,157 +373,6 @@ class MainBot:
             LOGGER.exception("Ошибка при получении сообщений")
             await self._handle_parse_error(chat_id, bot_msg_id, e)
             await self._fsm.reset(ctx.key)
-
-    async def _handle_parse_error(
-        self,
-        chat_id: int,
-        bot_msg_id: int | None,
-        error: Exception,
-    ) -> None:
-        if bot_msg_id:
-            await self._client.edit_message(
-                chat_id,
-                bot_msg_id,
-                error_text(error),
-                buttons=back_to_menu(),
-            )
-        else:
-            await self._client.send_message(
-                chat_id,
-                error_text(error),
-                buttons=back_to_menu(),
-            )
-
-    async def on_message(self, event: events.NewMessage.Event):
-        try:
-            await self.dispatcher.dispatch(event)
-        except Exception:
-            LOGGER.exception("FSM handler crashed")
-
-    async def on_callback(self, event: events.CallbackQuery.Event):
-        """Обработчик callback-запросов от inline-кнопок."""
-        try:
-            await self.dispatcher.dispatch_callback(event)
-        except Exception:
-            LOGGER.exception("Callback handler crashed")
-
-    def _register_handler(self):
-        """Регистрирует все хендлеры через единый диспатчер."""
-        # Все сообщения идут через диспатчер
-        self._client.add_event_handler(
-            self.on_message, events.NewMessage(incoming=True)
-        )
-
-        # Все callback-запросы идут через диспатчер
-        self._client.add_event_handler(self.on_callback, events.CallbackQuery())
-
-        # Регистрируем хендлеры команд в диспатчере
-        self.dispatcher.handlers[FSMState.DEFAULT] = self.default_handler
-        self.dispatcher.handlers["/start"] = self.start_handler
-
-        # Регистрируем хендлеры состояний FSM
-        self.dispatcher.handlers[FSMState.WAIT_CHANNEL] = self.get_messages_limit
-        self.dispatcher.handlers[FSMState.WAIT_CUSTOM_LIMIT] = (
-            self.get_messages_custom_limit
-        )
-
-        # Регистрируем callback-хендлеры
-        self.dispatcher.callback_handlers["cmd:get_messages"] = (
-            self.callback_get_messages
-        )
-        self.dispatcher.callback_handlers["cmd:help"] = self.callback_help
-        self.dispatcher.callback_handlers["cmd:cancel"] = self.callback_cancel
-        self.dispatcher.callback_handlers["cmd:main_menu"] = self.callback_main_menu
-        self.dispatcher.callback_handlers["limit:"] = (
-            self.callback_limit
-        )  # Префикс для всех limit:*
-
-    async def default_handler(self, event: events.NewMessage.Event, ctx: FSMContext):
-        """Хендлер по умолчанию для неизвестных команд."""
-        await event.reply(
-            UNKNOWN_MESSAGE, buttons=main_menu()
-        )
-
-    # === Callback handlers ===
-
-    async def callback_get_messages(
-        self, event: events.CallbackQuery.Event, ctx: FSMContext
-    ):
-        """Callback: начать получение сообщений."""
-        LOGGER.info(
-            "Пользователь запросил получение постов: user_id={}, chat_id={}",
-            event.sender_id,
-            event.chat_id,
-        )
-        await event.answer()
-        await event.edit(
-            WAITING_CHANNEL_MESSAGE,
-            buttons=cancel_button(),
-        )
-        # Сохраняем ID сообщения бота для последующего редактирования
-        await self._fsm.update_data(ctx, bot_message_id=event.message_id)
-        await self._fsm.set_state(ctx, FSMState.WAIT_CHANNEL)
-
-    async def callback_help(self, event: events.CallbackQuery.Event, ctx: FSMContext):
-        """Callback: показать помощь."""
-        await event.answer()
-        await event.edit(
-            HELP_MESSAGE,
-            buttons=back_to_menu(),
-        )
-
-    async def callback_cancel(self, event: events.CallbackQuery.Event, ctx: FSMContext):
-        """Callback: отменить текущее действие."""
-        await event.answer("❌ Отменено")
-        await self._client.edit_message(
-            event.chat_id,
-            event.message_id,
-            CANCEL_MESSAGE,
-            buttons=main_menu(),
-        )
-        await self._fsm.reset(ctx.key)
-
-    async def callback_main_menu(
-        self, event: events.CallbackQuery.Event, ctx: FSMContext
-    ):
-        """Callback: вернуться в главное меню."""
-        await event.answer()
-        await self._client.edit_message(
-            event.chat_id,
-            event.message_id,
-            MAIN_MENU_MESSAGE,
-            buttons=main_menu(),
-        )
-        await self._fsm.reset(ctx.key)
-
-    async def callback_limit(self, event: events.CallbackQuery.Event, ctx: FSMContext):
-        """Callback: выбор лимита постов."""
-        await event.answer()
-
-        callback_data = (
-            event.data.decode("utf-8") if isinstance(event.data, bytes) else event.data
-        )
-
-        if callback_data == "limit:custom":
-            # Пользователь хочет ввести своё значение
-            await event.edit(
-                CUSTOM_LIMIT_PROMPT, buttons=cancel_button()
-            )
-            # Сохраняем ID сообщения бота
-            await self._fsm.update_data(ctx, bot_message_id=event.message_id)
-            await self._fsm.set_state(ctx, FSMState.WAIT_CUSTOM_LIMIT)
-        else:
-            # Пользователь выбрал предустановленное значение
-            limit_str = callback_data.split(":")[1]
-            try:
-                limit = int(limit_str)
-                channel = ctx.data.get("channel")
-                # Сохраняем ID перед парсингом
-                await self._fsm.update_data(ctx, bot_message_id=event.message_id)
-                await self._parse_and_send(ctx, channel, limit)
-            except (ValueError, IndexError):
-                await event.edit(LIMIT_ERROR_MESSAGE, buttons=back_to_menu())
-                await self._fsm.reset(ctx.key)
 
     async def run(self) -> None:
         loop = asyncio.get_running_loop()
